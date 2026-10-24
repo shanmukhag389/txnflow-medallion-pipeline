@@ -1,8 +1,9 @@
-"""Gold layer: business-ready daily aggregates built from silver."""
+"""Gold layer job: read silver, apply the gold transform, write the aggregates."""
 import argparse
 
 from common import get_spark
 from pyspark.sql import functions as F
+from transforms import gold_transform
 
 
 def main():
@@ -14,42 +15,14 @@ def main():
     spark = get_spark("txnflow-gold")
     base = f"s3a://{args.bucket}"
 
-    silver = (
-        spark.read.parquet(f"{base}/silver/dt={args.date}")
-        .withColumn("dt", F.lit(args.date))
-    )
-
-    is_success = F.col("status") == "SUCCESS"
-    is_failed = F.col("status") == "FAILED"
-    is_refunded = F.col("status") == "REFUNDED"
-
-    merchant_daily = (
-        silver.groupBy("dt", "merchant", "category")
-        .agg(
-            F.count("*").alias("txn_count"),
-            F.sum(F.when(is_success, 1).otherwise(0)).alias("success_count"),
-            F.sum(F.when(is_failed, 1).otherwise(0)).alias("failed_count"),
-            F.sum(F.when(is_success, F.col("amount")).otherwise(0)).alias("revenue"),
-            F.sum(F.when(is_refunded, F.col("amount")).otherwise(0)).alias("refunded_amount"),
-        )
-        .withColumn("avg_ticket", F.round(F.col("revenue") / F.col("success_count"), 2))
-    )
-
-    customer_daily = (
-        silver.groupBy("dt", "customer_id")
-        .agg(
-            F.count("*").alias("txn_count"),
-            F.sum(F.when(is_success, F.col("amount")).otherwise(0)).alias("total_spend"),
-            F.countDistinct("merchant").alias("distinct_merchants"),
-            F.max("txn_ts").alias("last_txn_ts"),
-        )
-    )
+    silver = spark.read.parquet(f"{base}/silver/dt={args.date}").withColumn("dt", F.lit(args.date))
+    merchant_daily, customer_daily = gold_transform(silver)
 
     merchant_daily.write.mode("overwrite").partitionBy("dt").parquet(f"{base}/gold/merchant_daily")
     customer_daily.write.mode("overwrite").partitionBy("dt").parquet(f"{base}/gold/customer_daily")
 
     # Reconciliation: gold totals must match silver totals.
-    silver_revenue = silver.filter(is_success).agg(F.sum("amount")).first()[0]
+    silver_revenue = silver.filter(F.col("status") == "SUCCESS").agg(F.sum("amount")).first()[0]
     gold_merchant = spark.read.parquet(f"{base}/gold/merchant_daily/dt={args.date}")
     gold_customer = spark.read.parquet(f"{base}/gold/customer_daily/dt={args.date}")
     merchant_revenue = gold_merchant.agg(F.sum("revenue")).first()[0]
