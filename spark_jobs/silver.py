@@ -16,7 +16,7 @@ def main():
     spark = get_spark("txnflow-silver")
     base = f"s3a://{args.bucket}"
 
-    bronze = spark.read.parquet(f"{base}/bronze/dt={args.date}")
+    bronze = spark.read.parquet(f"{base}/bronze/dt={args.date}").withColumn("dt", F.lit(args.date))
     bronze_count = bronze.count()
 
     typed = (
