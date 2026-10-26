@@ -1,9 +1,9 @@
 name: TxnFlow Core CI/CD Pipeline
 
 on:
-  pull_request:
-    branches: [ main ]
   push:
+    branches: [ main ]
+  pull_request:
     branches: [ main ]
 
 permissions:
@@ -41,11 +41,11 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Authenticate Session to AWS via Inline Credentials
+      - name: Authenticate Session to AWS via Secrets
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: "AKIATHACMQQHV4YGFWPF"
-          aws-secret-access-key: "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"
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-southeast-2
 
       - name: Deploy Orchestration DAGs and Processing Logic to Production S3
