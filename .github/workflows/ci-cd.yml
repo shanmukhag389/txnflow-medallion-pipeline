@@ -1,0 +1,55 @@
+name: TxnFlow Core CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  continuous-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Initialize Runtime Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y default-jdk-headless
+          pip install pyspark==3.5.3 faker boto3 pytest ruff snowflake-connector-python
+
+      - name: Enforce Code Linter Checks
+        run: ruff check .
+
+      - name: Execute Local PySpark Transforms Testing
+        run: pytest
+
+  continuous-deployment:
+    needs: continuous-integration
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate Keyless Session to AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-southeast-2
+          audience: ://amazonaws.com
+
+      - name: Deploy Orchestration DAGs and Processing Logic to Production S3
+        run: |
+          aws s3 sync dags/ s3://txnflow-medallion-pipeline/artifacts/dags/ --delete
+          aws s3 sync spark_jobs/ s3://txnflow-medallion-pipeline/artifacts/spark_jobs/ --delete
