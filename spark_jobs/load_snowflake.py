@@ -1,6 +1,8 @@
 import argparse
 import os
+
 import snowflake.connector
+
 
 def run_snowflake_load(execution_date):
     # Fetch credentials directly from the secure environment layer
@@ -44,4 +46,3 @@ if __name__ == "__main__":
     parser.add_argument("--date", required=True, help="Partition Date (YYYY-MM-DD)")
     args = parser.parse_args()
     run_snowflake_load(args.date)
-
